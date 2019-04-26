@@ -26,8 +26,6 @@ import javax.xml.crypto.Data;
 
 import org.cc.generate.entity.DatabaseReflect;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
@@ -36,6 +34,7 @@ import org.springframework.stereotype.Service;
 
 import com.mysql.cj.api.xdevapi.Column;
 import com.squareup.javapoet.AnnotationSpec;
+import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.FieldSpec;
 import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.MethodSpec;
@@ -67,39 +66,39 @@ public class JPAGenerate {
 	/**
 	 * 数据库驱动
 	 */
-	private static String databaseDriver;
+	private static String databaseDriver = "com.mysql.cj.jdbc.Driver";
 	/**
 	 * 数据库url
 	 */
-	private static String databaseUrl;
+	private static String databaseUrl = "";
 	/**
 	 * 数据库用户名
 	 */
-	private static String databaseUserName;
+	private static String databaseUserName = "";
 	/**
 	 * 数据库密码
 	 */
-	private static String databasePassword;
+	private static String databasePassword = "";
 	/**
 	 * 数据库名字
 	 */
-	private static String databaseName;
+	private static String databaseName = "once_xn_affairs";
 	/**
 	 * 实体名字
 	 */
-	private static String entityName;
+	private static String entityName = "AicEnterpriseHouse";
 	/**
 	 * 表名字
 	 */
-	private static String tableName;
+	private static String tableName = "t_aic_enterprise_house";
 	/**
-	 * 表名字
+	 * 作者
 	 */
-	private static String classAuthor;
+	private static String classAuthor = "chenxianjing";
 	/**
-	 * 表名字
+	 * 版本号
 	 */
-	private static String classVersion;
+	private static String classVersion = "1.0.0";
 
 	private static final String filePath = "D://test";
 
@@ -209,8 +208,7 @@ public class JPAGenerate {
 		});
 		typeSpec.addJavadoc("实体<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
-		typeSpec.addAnnotation(Entity.class);
-		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(Column.class).addMember("name", "$S", tableName)
+		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(Entity.class).addMember("name", "$S", tableName)
 				.build();
 		typeSpec.addAnnotation(tableAnnotationBuilder);
 		typeSpec.addAnnotation(Data.class);
@@ -233,15 +231,14 @@ public class JPAGenerate {
 	 */
 	private boolean generateRepository() {
 		Builder typeSpec = TypeSpec.interfaceBuilder(entityName + "Repository").addModifiers(Modifier.PUBLIC);
-		try {
-			Class<?> entity = Class.forName("domain." + entityName + "Entity");
-			typeSpec.addSuperinterface(
-					ParameterizedTypeName.get(JpaRepository.class, entity, primaryKeyList.get(0).getJavaType()));
-			typeSpec.addSuperinterface(ParameterizedTypeName.get(JpaSpecificationExecutor.class, entity));
-		} catch (ClassNotFoundException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
-		}
+		ClassName jpaRepository = ClassName.get("org.springframework.data.jpa.repository", "JpaRepository");
+		ClassName entityClass = ClassName.get("domain.", entityName + "Entity");
+		ClassName jpaSpecificationExecutor = ClassName.get("org.springframework.data.jpa.repository",
+				"JpaSpecificationExecutor");
+		ClassName primary = ClassName.get("java.lang", primaryKeyList.get(0).getJavaType().getSimpleName());
+		ParameterizedTypeName.get(jpaRepository, entityClass, primary);
+		typeSpec.addSuperinterface(ParameterizedTypeName.get(jpaRepository, entityClass, primary));
+		typeSpec.addSuperinterface(ParameterizedTypeName.get(jpaSpecificationExecutor, entityClass));
 		// 删除方法
 		String primaryString = primaryKeyList.get(0).getFieldName();
 		String sql = "UPDATE %S p SET p.delFlag = 0 WHERE p.%S = :%S";
@@ -419,22 +416,16 @@ public class JPAGenerate {
 	 */
 	private boolean generateService() {
 		Builder typeSpec = TypeSpec.classBuilder(entityName + "Service").addModifiers(Modifier.PUBLIC);
-		try {
-			com.squareup.javapoet.FieldSpec.Builder  fieldBuilder = FieldSpec
-					.builder(Class.forName(entityName + "Repository"), entityName + "Repository");
-			fieldBuilder.addModifiers(Modifier.PRIVATE);
-			fieldBuilder.addAnnotation(AnnotationSpec.builder(Autowired.class).build());
-			typeSpec.addField(fieldBuilder.build());
-			fieldBuilder = FieldSpec
-					.builder(Class.forName("repository.DynamicRepository"), "dynamicRepository")
-					;
-			fieldBuilder.addModifiers(Modifier.PRIVATE);
-			fieldBuilder.addAnnotation(AnnotationSpec.builder(Autowired.class).build());
-			typeSpec.addField(fieldBuilder.build());
-		} catch (ClassNotFoundException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
-		}
+		ClassName repository = ClassName.get("repository", entityName + "Repository");
+		ClassName dynamicRepository = ClassName.get("repository", "DynamicRepository");
+		com.squareup.javapoet.FieldSpec.Builder fieldBuilder = FieldSpec.builder(repository, entityName + "Repository");
+		fieldBuilder.addModifiers(Modifier.PRIVATE);
+		fieldBuilder.addAnnotation(AnnotationSpec.builder(Autowired.class).build());
+		typeSpec.addField(fieldBuilder.build());
+		fieldBuilder = FieldSpec.builder(dynamicRepository, "dynamicRepository");
+		fieldBuilder.addModifiers(Modifier.PRIVATE);
+		fieldBuilder.addAnnotation(AnnotationSpec.builder(Autowired.class).build());
+		typeSpec.addField(fieldBuilder.build());
 		typeSpec.addJavadoc("入参<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
 		typeSpec.addAnnotation(Service.class);
@@ -462,6 +453,11 @@ public class JPAGenerate {
 	 */
 	public void oneTouch() {
 		this.generateEntity();
+		this.generateRepository();
+		this.generateIModel();
+		this.generateOModel();
+		this.generateDynamicRepository();
+		this.generateService();
 	}
 
 	public static void main(String[] args) {
