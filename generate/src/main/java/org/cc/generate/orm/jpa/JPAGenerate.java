@@ -1,11 +1,7 @@
 package org.cc.generate.orm.jpa;
 
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.math.BigDecimal;
-import java.net.URL;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -21,20 +17,36 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 
 import javax.lang.model.element.Modifier;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
 import javax.swing.text.html.parser.Entity;
 import javax.xml.crypto.Data;
 
 import org.cc.generate.entity.DatabaseReflect;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Service;
 
 import com.mysql.cj.api.xdevapi.Column;
 import com.squareup.javapoet.AnnotationSpec;
 import com.squareup.javapoet.FieldSpec;
 import com.squareup.javapoet.JavaFile;
+import com.squareup.javapoet.MethodSpec;
+import com.squareup.javapoet.ParameterSpec;
+import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeSpec;
 import com.squareup.javapoet.TypeSpec.Builder;
+
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
+import lombok.extern.slf4j.Slf4j;
 
 public class JPAGenerate {
 
@@ -110,25 +122,6 @@ public class JPAGenerate {
 		jdbcJavaTypes.put(Types.DATE, LocalDate.class);
 		jdbcJavaTypes.put(Types.TIME, LocalTime.class);
 		jdbcJavaTypes.put(Types.TIMESTAMP, LocalDateTime.class);
-		// 读取properties配置文件
-		URL url = Thread.currentThread().getContextClassLoader().getResource("Generator.properties");
-		try (InputStream in = new FileInputStream(url.getFile());) {
-			Properties properties = new Properties();
-			properties.load(in);
-			entityName = properties.getProperty("entity.name");
-			tableName = properties.getProperty("table.name");
-			databaseDriver = properties.getProperty("database.driver");
-			databaseUrl = properties.getProperty("database.url");
-			databaseUserName = properties.getProperty("database.username");
-			databasePassword = properties.getProperty("database.password");
-			databaseName = properties.getProperty("database.name");
-			classAuthor = properties.getProperty("class.author");
-			classVersion = properties.getProperty("class.version");
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-		} catch (IOException e1) {
-			e1.printStackTrace();
-		}
 		try {
 			Class.forName(databaseDriver);
 		} catch (ClassNotFoundException e1) {
@@ -174,61 +167,6 @@ public class JPAGenerate {
 	}
 
 	/**
-	 * 生成实体
-	 * 
-	 * @param path
-	 * @param className
-	 * @return
-	 */
-	private boolean generateEntity() {
-		Builder typeSpec = TypeSpec.classBuilder(entityName).addModifiers(Modifier.PUBLIC);
-		conlumnList.forEach(e -> {
-			com.squareup.javapoet.FieldSpec.Builder fieldBuilder = FieldSpec.builder(e.getJavaType(), e.getFieldName())
-					.addJavadoc(e.getAnnotation()).addJavadoc("\n");
-			fieldBuilder.addModifiers(Modifier.PRIVATE);
-			AnnotationSpec annotationBuilder = AnnotationSpec.builder(Column.class)
-					.addMember("name", "$S", e.getConlumnName()).build();
-			fieldBuilder.addAnnotation(annotationBuilder);
-			typeSpec.addField(fieldBuilder.build());
-		});
-		typeSpec.addJavadoc("实体<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
-				+ "\n@since " + classVersion + "\n");
-		typeSpec.addAnnotation(Entity.class);
-		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(Column.class)
-				.addMember("name", "$S", tableName).build();
-		typeSpec.addAnnotation(tableAnnotationBuilder);
-		typeSpec.addAnnotation(Data.class);
-		TypeSpec generateClass = typeSpec.build();
-		JavaFile javaFile = JavaFile.builder("domain", generateClass).build();
-		try {
-			javaFile.writeTo(Paths.get(filePath));
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		return true;
-	}
-	
-	/**
-	 * 生成实体
-	 * 
-	 * @param path
-	 * @param className
-	 * @return
-	 */
-	/*
-	 * private boolean generateRepository() { Builder typeSpec =
-	 * TypeSpec.classBuilder(entityName +
-	 * "Repostitory").addModifiers(Modifier.PUBLIC);
-	 * typeSpec.addSuperinterface(ParameterizedTypeName.get(JpaRepository.class,
-	 * Long.class)); typeSpec.addJavadoc("实体<br>\n@author " + classAuthor +
-	 * "\n@date " + dateTimeFormater.format(LocalDateTime.now()) + "\n@since " +
-	 * classVersion + "\n"); TypeSpec generateClass = typeSpec.build(); JavaFile
-	 * javaFile = JavaFile.builder("domain", generateClass).build(); try {
-	 * javaFile.writeTo(Paths.get(filePath)); } catch (IOException e) {
-	 * e.printStackTrace(); } return true; }
-	 */
-
-	/**
 	 * 把待下划线的字符串转化为驼峰格式的字符串
 	 * 
 	 * @param param
@@ -249,6 +187,274 @@ public class JPAGenerate {
 		} else {
 			return param;
 		}
+	}
+
+	/**
+	 * 生成实体
+	 * 
+	 * @param path
+	 * @param className
+	 * @return
+	 */
+	private boolean generateEntity() {
+		Builder typeSpec = TypeSpec.classBuilder(entityName + "Entity").addModifiers(Modifier.PUBLIC);
+		conlumnList.forEach(e -> {
+			com.squareup.javapoet.FieldSpec.Builder fieldBuilder = FieldSpec.builder(e.getJavaType(), e.getFieldName())
+					.addJavadoc(e.getAnnotation()).addJavadoc("\n");
+			fieldBuilder.addModifiers(Modifier.PRIVATE);
+			AnnotationSpec annotationBuilder = AnnotationSpec.builder(Column.class)
+					.addMember("name", "$S", e.getConlumnName()).build();
+			fieldBuilder.addAnnotation(annotationBuilder);
+			typeSpec.addField(fieldBuilder.build());
+		});
+		typeSpec.addJavadoc("实体<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
+				+ "\n@since " + classVersion + "\n");
+		typeSpec.addAnnotation(Entity.class);
+		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(Column.class).addMember("name", "$S", tableName)
+				.build();
+		typeSpec.addAnnotation(tableAnnotationBuilder);
+		typeSpec.addAnnotation(Data.class);
+		TypeSpec generateClass = typeSpec.build();
+		JavaFile javaFile = JavaFile.builder("domain", generateClass).build();
+		try {
+			javaFile.writeTo(Paths.get(filePath));
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return true;
+	}
+
+	/**
+	 * 生成Repository
+	 * 
+	 * @param path
+	 * @param className
+	 * @return
+	 */
+	private boolean generateRepository() {
+		Builder typeSpec = TypeSpec.interfaceBuilder(entityName + "Repository").addModifiers(Modifier.PUBLIC);
+		try {
+			Class<?> entity = Class.forName("domain." + entityName + "Entity");
+			typeSpec.addSuperinterface(
+					ParameterizedTypeName.get(JpaRepository.class, entity, primaryKeyList.get(0).getJavaType()));
+			typeSpec.addSuperinterface(ParameterizedTypeName.get(JpaSpecificationExecutor.class, entity));
+		} catch (ClassNotFoundException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+		// 删除方法
+		String primaryString = primaryKeyList.get(0).getFieldName();
+		String sql = "UPDATE %S p SET p.delFlag = 0 WHERE p.%S = :%S";
+		com.squareup.javapoet.MethodSpec.Builder methodBuilder = MethodSpec.methodBuilder("removeOne");
+		methodBuilder.addAnnotation(Modifying.class);
+		AnnotationSpec queryAnnotationBuilder = AnnotationSpec.builder(Query.class)
+				.addMember("value", "$", String.format(sql, entityName + "Entity", primaryString, primaryString))
+				.build();
+		methodBuilder.addAnnotation(queryAnnotationBuilder);
+		com.squareup.javapoet.ParameterSpec.Builder paramBuilder = ParameterSpec
+				.builder(primaryKeyList.get(0).getJavaType(), primaryString);
+		paramBuilder.addAnnotation(AnnotationSpec.builder(Param.class).addMember("value", "$", primaryString).build());
+		methodBuilder.addParameter(paramBuilder.build());
+		typeSpec.addMethod(methodBuilder.build());
+		// 根据主键获取未删除的数据
+		sql = "select u from %S u where u.delFlag = 1 and u.%S = :%S";
+		methodBuilder = MethodSpec.methodBuilder("getOne");
+		methodBuilder.addAnnotation(Modifying.class);
+		queryAnnotationBuilder = AnnotationSpec.builder(Query.class)
+				.addMember("value", "$", String.format(sql, entityName + "Entity", primaryString, primaryString))
+				.build();
+		methodBuilder.addAnnotation(queryAnnotationBuilder);
+		methodBuilder.addParameter(paramBuilder.build());
+		typeSpec.addMethod(methodBuilder.build());
+
+		typeSpec.addJavadoc("repository<br>\n@author " + classAuthor + "\n@date "
+				+ dateTimeFormater.format(LocalDateTime.now()) + "\n@since " + classVersion + "\n");
+		TypeSpec generateClass = typeSpec.build();
+		JavaFile javaFile = JavaFile.builder("repository", generateClass).build();
+		try {
+			javaFile.writeTo(Paths.get(filePath));
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return true;
+	}
+
+	/**
+	 * 生成实体
+	 * 
+	 * @param path
+	 * @param className
+	 * @return
+	 */
+	private boolean generateIModel() {
+		Builder typeSpec = TypeSpec.classBuilder(entityName + "IModel").addModifiers(Modifier.PUBLIC);
+		conlumnList.forEach(e -> {
+			com.squareup.javapoet.FieldSpec.Builder fieldBuilder = FieldSpec.builder(e.getJavaType(), e.getFieldName())
+					.addJavadoc(e.getAnnotation()).addJavadoc("\n");
+			fieldBuilder.addModifiers(Modifier.PRIVATE);
+			AnnotationSpec annotationBuilder = AnnotationSpec.builder(ApiModelProperty.class)
+					.addMember("value", "$S", e.getConlumnName()).build();
+			fieldBuilder.addAnnotation(annotationBuilder);
+			typeSpec.addField(fieldBuilder.build());
+		});
+		typeSpec.addJavadoc("入参<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
+				+ "\n@since " + classVersion + "\n");
+		typeSpec.addAnnotation(Entity.class);
+		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(ApiModel.class)
+				.addMember("value", "$S", tableName).build();
+		typeSpec.addAnnotation(tableAnnotationBuilder);
+		typeSpec.addAnnotation(Data.class);
+		TypeSpec generateClass = typeSpec.build();
+		JavaFile javaFile = JavaFile.builder("in", generateClass).build();
+		try {
+			javaFile.writeTo(Paths.get(filePath));
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return true;
+	}
+
+	/**
+	 * 生成实体
+	 * 
+	 * @param path
+	 * @param className
+	 * @return
+	 */
+	private boolean generateOModel() {
+		Builder typeSpec = TypeSpec.classBuilder(entityName + "OModel").addModifiers(Modifier.PUBLIC);
+		conlumnList.forEach(e -> {
+			com.squareup.javapoet.FieldSpec.Builder fieldBuilder = FieldSpec.builder(e.getJavaType(), e.getFieldName())
+					.addJavadoc(e.getAnnotation()).addJavadoc("\n");
+			fieldBuilder.addModifiers(Modifier.PRIVATE);
+			AnnotationSpec annotationBuilder = AnnotationSpec.builder(ApiModelProperty.class)
+					.addMember("value", "$S", e.getConlumnName()).build();
+			fieldBuilder.addAnnotation(annotationBuilder);
+			typeSpec.addField(fieldBuilder.build());
+		});
+		typeSpec.addJavadoc("入参<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
+				+ "\n@since " + classVersion + "\n");
+		typeSpec.addAnnotation(Entity.class);
+		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(ApiModel.class)
+				.addMember("value", "$S", tableName).build();
+		typeSpec.addAnnotation(tableAnnotationBuilder);
+		typeSpec.addAnnotation(Data.class);
+		TypeSpec generateClass = typeSpec.build();
+		JavaFile javaFile = JavaFile.builder("out", generateClass).build();
+		try {
+			javaFile.writeTo(Paths.get(filePath));
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return true;
+	}
+
+	/**
+	 * 生成实体
+	 * 
+	 * @param path
+	 * @param className
+	 * @return
+	 */
+	private boolean generateDynamicRepository() {
+		Builder typeSpec = TypeSpec.classBuilder("DynamicRepository<T>").addModifiers(Modifier.PUBLIC);
+		com.squareup.javapoet.FieldSpec.Builder fieldBuilder = FieldSpec.builder(EntityManager.class, "entityManager");
+		fieldBuilder.addModifiers(Modifier.PRIVATE);
+		fieldBuilder.addAnnotation(PersistenceContext.class);
+		typeSpec.addField(fieldBuilder.build());
+		typeSpec.addJavadoc("\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
+				+ "\n@since " + classVersion + "\n");
+		typeSpec.addAnnotation(Repository.class);
+		typeSpec.addAnnotation(Slf4j.class);
+		com.squareup.javapoet.MethodSpec.Builder methodBuilder = MethodSpec.methodBuilder("updateDynamicByPrimaryKey");
+		methodBuilder.addCode("Class entityClass = t.getClass()");
+		methodBuilder.addCode("CriteriaUpdate update = em.getCriteriaBuilder().createCriteriaUpdate(entityClass);");
+		methodBuilder.addCode("Root<T> root = update.from(entityClass)");
+		methodBuilder.addCode("Field[] fields = entityClass.getDeclaredFields()");
+		methodBuilder.addCode("String primaryKeyName = null;");
+		methodBuilder.addCode("try {");
+		methodBuilder.addCode("for (Field field : fields) {");
+		methodBuilder.addCode("field.setAccessible(true);");
+		methodBuilder.addCode("Column column = field.getAnnotation(Column.class);");
+		methodBuilder.addCode("Id id = field.getAnnotation(Id.class);");
+		methodBuilder.addCode("if (!Objects.isNull(column) && Objects.isNull(id)) {");
+		methodBuilder.addCode("Object param = field.get(t);");
+		methodBuilder.addCode("if (!Objects.isNull(param)) {");
+		methodBuilder.addCode("update.set(root.get(field.getName()), param);");
+		methodBuilder.addCode("}");
+		methodBuilder.addCode("}");
+		methodBuilder.addCode("if(!Objects.isNull(id)){");
+		methodBuilder.addCode("primaryKeyName = field.getName();");
+		methodBuilder.addCode("}");
+		methodBuilder.addCode("}");
+		methodBuilder.addCode("if(StringUtils.isBlank(primaryKeyName)){");
+		methodBuilder.addCode("log.error(\"根据主键更新表失败:主键不存在\");");
+		methodBuilder.addCode("return 0;");
+		methodBuilder.addCode("}");
+		methodBuilder.addCode("Field primaryField = entityClass.getDeclaredField(primaryKeyName);");
+		methodBuilder.addCode("update.where(criteriaBuilder.equal(root.get(primaryKeyName), primaryField.get(t)));");
+		methodBuilder.addCode("Query query = em.createQuery(update);");
+		methodBuilder.addCode("return query.executeUpdate();");
+		methodBuilder.addCode("return query.executeUpdate();");
+		methodBuilder.addCode("} catch (IllegalAccessException | NoSuchFieldException e) {");
+		methodBuilder.addCode("log.error(\"反射获取属性失败\", e);");
+		methodBuilder.addCode("}");
+		methodBuilder.addCode("return 0;");
+		TypeSpec generateClass = typeSpec.build();
+		JavaFile javaFile = JavaFile.builder("repository", generateClass).build();
+		try {
+			javaFile.writeTo(Paths.get(filePath));
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return true;
+	}
+
+	/**
+	 * 生成实体
+	 * 
+	 * @param path
+	 * @param className
+	 * @return
+	 */
+	private boolean generateService() {
+		Builder typeSpec = TypeSpec.classBuilder(entityName + "Service").addModifiers(Modifier.PUBLIC);
+		try {
+			com.squareup.javapoet.FieldSpec.Builder  fieldBuilder = FieldSpec
+					.builder(Class.forName(entityName + "Repository"), entityName + "Repository");
+			fieldBuilder.addModifiers(Modifier.PRIVATE);
+			fieldBuilder.addAnnotation(AnnotationSpec.builder(Autowired.class).build());
+			typeSpec.addField(fieldBuilder.build());
+			fieldBuilder = FieldSpec
+					.builder(Class.forName("repository.DynamicRepository"), "dynamicRepository")
+					;
+			fieldBuilder.addModifiers(Modifier.PRIVATE);
+			fieldBuilder.addAnnotation(AnnotationSpec.builder(Autowired.class).build());
+			typeSpec.addField(fieldBuilder.build());
+		} catch (ClassNotFoundException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+		typeSpec.addJavadoc("入参<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
+				+ "\n@since " + classVersion + "\n");
+		typeSpec.addAnnotation(Service.class);
+		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(ApiModel.class)
+				.addMember("value", "$S", tableName).build();
+		typeSpec.addAnnotation(tableAnnotationBuilder);
+		typeSpec.addAnnotation(Data.class);
+		typeSpec.addMethod(new GenerateRemove().remove(entityName, primaryKeyList.get(0)).build());
+		GenerateSave generateSave = new GenerateSave();
+		typeSpec.addMethod(generateSave.update(entityName, primaryKeyList.get(0).getFieldName()).build());
+		typeSpec.addMethod(generateSave.save(entityName, primaryKeyList.get(0).getFieldName()).build());
+		typeSpec.addMethod(new GenerateFindOne().findOne(entityName, primaryKeyList.get(0)).build());
+		TypeSpec generateClass = typeSpec.build();
+		JavaFile javaFile = JavaFile.builder("service", generateClass).build();
+		try {
+			javaFile.writeTo(Paths.get(filePath));
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return true;
 	}
 
 	/**
