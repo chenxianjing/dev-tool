@@ -14,15 +14,17 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import javax.lang.model.element.Modifier;
+import javax.persistence.Column;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
+import javax.persistence.Table;
 import javax.swing.text.html.parser.Entity;
-import javax.xml.crypto.Data;
 
 import org.cc.generate.entity.DatabaseReflect;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +34,6 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Service;
 
-import com.mysql.cj.api.xdevapi.Column;
 import com.squareup.javapoet.AnnotationSpec;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.FieldSpec;
@@ -45,6 +46,7 @@ import com.squareup.javapoet.TypeSpec.Builder;
 
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 public class JPAGenerate {
@@ -82,15 +84,15 @@ public class JPAGenerate {
 	/**
 	 * 数据库名字
 	 */
-	private static String databaseName = "once_xn_affairs";
+	private static String databaseName = "";
 	/**
 	 * 实体名字
 	 */
-	private static String entityName = "AicEnterpriseHouse";
+	private static String entityName = "TaxTaxpayer";
 	/**
 	 * 表名字
 	 */
-	private static String tableName = "t_aic_enterprise_house";
+	private static String tableName = "t_tax_taxpayer";
 	/**
 	 * 作者
 	 */
@@ -106,8 +108,8 @@ public class JPAGenerate {
 
 	static {
 		jdbcJavaTypes.put(Types.BIT, Boolean.class);
-		jdbcJavaTypes.put(Types.TINYINT, Byte.class);
-		jdbcJavaTypes.put(Types.SMALLINT, Short.class);
+		jdbcJavaTypes.put(Types.TINYINT, Integer.class);
+		jdbcJavaTypes.put(Types.SMALLINT, Integer.class);
 		jdbcJavaTypes.put(Types.INTEGER, Integer.class);
 		jdbcJavaTypes.put(Types.BIGINT, Long.class);
 		jdbcJavaTypes.put(Types.REAL, Float.class);
@@ -120,7 +122,7 @@ public class JPAGenerate {
 		jdbcJavaTypes.put(Types.LONGVARCHAR, String.class);
 		jdbcJavaTypes.put(Types.DATE, LocalDate.class);
 		jdbcJavaTypes.put(Types.TIME, LocalTime.class);
-		jdbcJavaTypes.put(Types.TIMESTAMP, LocalDateTime.class);
+		jdbcJavaTypes.put(Types.TIMESTAMP, Date.class);
 		try {
 			Class.forName(databaseDriver);
 		} catch (ClassNotFoundException e1) {
@@ -208,10 +210,15 @@ public class JPAGenerate {
 		});
 		typeSpec.addJavadoc("实体<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
-		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(Entity.class).addMember("name", "$S", tableName)
+		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(Table.class).addMember("name", "$S", tableName)
 				.build();
 		typeSpec.addAnnotation(tableAnnotationBuilder);
+		typeSpec.addAnnotation(AnnotationSpec.builder(Entity.class).build());
 		typeSpec.addAnnotation(Data.class);
+		//使用没有引用包的类
+		ClassName dynamicInsert = ClassName.get("org.hibernate.annotations",
+				"DynamicInsert");
+		typeSpec.addAnnotation(dynamicInsert);
 		TypeSpec generateClass = typeSpec.build();
 		JavaFile javaFile = JavaFile.builder("domain", generateClass).build();
 		try {
@@ -289,17 +296,20 @@ public class JPAGenerate {
 			com.squareup.javapoet.FieldSpec.Builder fieldBuilder = FieldSpec.builder(e.getJavaType(), e.getFieldName())
 					.addJavadoc(e.getAnnotation()).addJavadoc("\n");
 			fieldBuilder.addModifiers(Modifier.PRIVATE);
-			AnnotationSpec annotationBuilder = AnnotationSpec.builder(ApiModelProperty.class)
-					.addMember("value", "$S", e.getConlumnName()).build();
+			ClassName apiModelProperty = ClassName.get("io.swagger.annotations",
+					"ApiModelProperty");
+			AnnotationSpec annotationBuilder = AnnotationSpec.builder(apiModelProperty)
+					.addMember("value", "$S", e.getAnnotation()).build();
 			fieldBuilder.addAnnotation(annotationBuilder);
 			typeSpec.addField(fieldBuilder.build());
 		});
 		typeSpec.addJavadoc("入参<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
-		typeSpec.addAnnotation(Entity.class);
-		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(ApiModel.class)
+		ClassName apiModel = ClassName.get("io.swagger.annotations",
+				"ApiModel");
+		AnnotationSpec apiModelAnnotationBuilder = AnnotationSpec.builder(apiModel)
 				.addMember("value", "$S", tableName).build();
-		typeSpec.addAnnotation(tableAnnotationBuilder);
+		typeSpec.addAnnotation(apiModelAnnotationBuilder);
 		typeSpec.addAnnotation(Data.class);
 		TypeSpec generateClass = typeSpec.build();
 		JavaFile javaFile = JavaFile.builder("in", generateClass).build();
@@ -324,17 +334,20 @@ public class JPAGenerate {
 			com.squareup.javapoet.FieldSpec.Builder fieldBuilder = FieldSpec.builder(e.getJavaType(), e.getFieldName())
 					.addJavadoc(e.getAnnotation()).addJavadoc("\n");
 			fieldBuilder.addModifiers(Modifier.PRIVATE);
-			AnnotationSpec annotationBuilder = AnnotationSpec.builder(ApiModelProperty.class)
-					.addMember("value", "$S", e.getConlumnName()).build();
+			ClassName apiModelProperty = ClassName.get("io.swagger.annotations",
+					"ApiModelProperty");
+			AnnotationSpec annotationBuilder = AnnotationSpec.builder(apiModelProperty)
+					.addMember("value", "$S", e.getAnnotation()).build();
 			fieldBuilder.addAnnotation(annotationBuilder);
 			typeSpec.addField(fieldBuilder.build());
 		});
 		typeSpec.addJavadoc("入参<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
-		typeSpec.addAnnotation(Entity.class);
-		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(ApiModel.class)
+		ClassName apiModel = ClassName.get("io.swagger.annotations",
+				"ApiModel");
+		AnnotationSpec apiModelAnnotationBuilder = AnnotationSpec.builder(apiModel)
 				.addMember("value", "$S", tableName).build();
-		typeSpec.addAnnotation(tableAnnotationBuilder);
+		typeSpec.addAnnotation(apiModelAnnotationBuilder);
 		typeSpec.addAnnotation(Data.class);
 		TypeSpec generateClass = typeSpec.build();
 		JavaFile javaFile = JavaFile.builder("out", generateClass).build();
@@ -453,9 +466,9 @@ public class JPAGenerate {
 	 */
 	public void oneTouch() {
 		this.generateEntity();
-		this.generateRepository();
 		this.generateIModel();
 		this.generateOModel();
+		this.generateRepository();
 		this.generateDynamicRepository();
 		this.generateService();
 	}
