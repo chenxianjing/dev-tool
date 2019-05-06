@@ -101,6 +101,10 @@ public class JPAGenerate {
 	 * 版本号
 	 */
 	private static String classVersion = "1.0.0";
+	/**
+	 * 表描述信息
+	 */
+	private static String tableDescription = "";
 
 	private static final String filePath = "D://test";
 
@@ -130,10 +134,13 @@ public class JPAGenerate {
 		}
 		ResultSet rs = null;
 		ResultSet primaryRs = null;
+		ResultSet tableRs = null;
 		try (Connection conn = DriverManager.getConnection(databaseUrl, databaseUserName, databasePassword);) {
 			DatabaseMetaData databaseMetaData = conn.getMetaData();
 			rs = databaseMetaData.getColumns(databaseName, null, tableName, "%");
 			primaryRs = databaseMetaData.getPrimaryKeys(databaseName, null, tableName);
+			tableRs = databaseMetaData.getTables(tableName, null, null, new String[] { "TABLE" });
+			tableDescription = tableRs.getString("REMARKS");
 			String conlumnName = null;
 			DatabaseReflect databaseReflect = null;
 			while (rs.next()) {
@@ -208,7 +215,7 @@ public class JPAGenerate {
 			fieldBuilder.addAnnotation(annotationBuilder);
 			typeSpec.addField(fieldBuilder.build());
 		});
-		typeSpec.addJavadoc("实体<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
+		typeSpec.addJavadoc(tableDescription + "<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
 		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(Table.class).addMember("name", "$S", tableName)
 				.build();
@@ -271,7 +278,7 @@ public class JPAGenerate {
 		methodBuilder.addParameter(paramBuilder.build());
 		typeSpec.addMethod(methodBuilder.build());
 
-		typeSpec.addJavadoc("repository<br>\n@author " + classAuthor + "\n@date "
+		typeSpec.addJavadoc(tableDescription + "repository<br>\n@author " + classAuthor + "\n@date "
 				+ dateTimeFormater.format(LocalDateTime.now()) + "\n@since " + classVersion + "\n");
 		TypeSpec generateClass = typeSpec.build();
 		JavaFile javaFile = JavaFile.builder("repository", generateClass).build();
@@ -303,7 +310,7 @@ public class JPAGenerate {
 			fieldBuilder.addAnnotation(annotationBuilder);
 			typeSpec.addField(fieldBuilder.build());
 		});
-		typeSpec.addJavadoc("入参<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
+		typeSpec.addJavadoc(tableDescription + "<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
 		ClassName apiModel = ClassName.get("io.swagger.annotations",
 				"ApiModel");
@@ -341,7 +348,7 @@ public class JPAGenerate {
 			fieldBuilder.addAnnotation(annotationBuilder);
 			typeSpec.addField(fieldBuilder.build());
 		});
-		typeSpec.addJavadoc("入参<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
+		typeSpec.addJavadoc(tableDescription + "<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
 		ClassName apiModel = ClassName.get("io.swagger.annotations",
 				"ApiModel");
@@ -372,7 +379,7 @@ public class JPAGenerate {
 		fieldBuilder.addModifiers(Modifier.PRIVATE);
 		fieldBuilder.addAnnotation(PersistenceContext.class);
 		typeSpec.addField(fieldBuilder.build());
-		typeSpec.addJavadoc("\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
+		typeSpec.addJavadoc(tableDescription + "\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
 		typeSpec.addAnnotation(Repository.class);
 		typeSpec.addAnnotation(Slf4j.class);
@@ -439,7 +446,7 @@ public class JPAGenerate {
 		fieldBuilder.addModifiers(Modifier.PRIVATE);
 		fieldBuilder.addAnnotation(AnnotationSpec.builder(Autowired.class).build());
 		typeSpec.addField(fieldBuilder.build());
-		typeSpec.addJavadoc("入参<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
+		typeSpec.addJavadoc(tableDescription + "<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
 		typeSpec.addAnnotation(Service.class);
 		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(ApiModel.class)
