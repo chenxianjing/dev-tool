@@ -6,6 +6,7 @@ import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -18,6 +19,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import javax.lang.model.element.Modifier;
 import javax.persistence.Column;
@@ -45,7 +47,6 @@ import com.squareup.javapoet.TypeSpec;
 import com.squareup.javapoet.TypeSpec.Builder;
 
 import io.swagger.annotations.ApiModel;
-import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
@@ -84,15 +85,15 @@ public class JPAGenerate {
 	/**
 	 * 数据库名字
 	 */
-	private static String databaseName = "";
+	private static String databaseName = "once_xn_affairs";
 	/**
 	 * 实体名字
 	 */
-	private static String entityName = "TaxTaxpayer";
+	private static String entityName = "OrderLog";
 	/**
 	 * 表名字
 	 */
-	private static String tableName = "t_tax_taxpayer";
+	private static String tableName = "t_order_log";
 	/**
 	 * 作者
 	 */
@@ -139,8 +140,11 @@ public class JPAGenerate {
 			DatabaseMetaData databaseMetaData = conn.getMetaData();
 			rs = databaseMetaData.getColumns(databaseName, null, tableName, "%");
 			primaryRs = databaseMetaData.getPrimaryKeys(databaseName, null, tableName);
-			tableRs = databaseMetaData.getTables(tableName, null, null, new String[] { "TABLE" });
-			tableDescription = tableRs.getString("REMARKS");
+			PreparedStatement preparedStatement = conn.prepareStatement("select * from information_schema.TABLES WHERE TABLE_NAME = '" + tableName + "' AND TABLE_SCHEMA = '"+ databaseName +"'");
+			tableRs = preparedStatement.executeQuery();
+			while(tableRs.next()) {
+				tableDescription = tableRs.getString("TABLE_COMMENT");
+			}
 			String conlumnName = null;
 			DatabaseReflect databaseReflect = null;
 			while (rs.next()) {
@@ -155,9 +159,12 @@ public class JPAGenerate {
 			while (primaryRs.next()) {
 				databaseReflect = new DatabaseReflect();
 				conlumnName = primaryRs.getString("COLUMN_NAME");
-				databaseReflect.setConlumnName(conlumnName);
-				databaseReflect.setFieldName(underlineToCamel(conlumnName));
-				primaryKeyList.add(databaseReflect);
+				for(DatabaseReflect d : conlumnList) {
+					if(conlumnName.equals(d.getConlumnName())) {
+						primaryKeyList.add(d);
+						break;
+					}
+				}
 			}
 			if (primaryKeyList.isEmpty()) {
 				primaryKeyList.add(conlumnList.get(0));
@@ -253,31 +260,26 @@ public class JPAGenerate {
 		ParameterizedTypeName.get(jpaRepository, entityClass, primary);
 		typeSpec.addSuperinterface(ParameterizedTypeName.get(jpaRepository, entityClass, primary));
 		typeSpec.addSuperinterface(ParameterizedTypeName.get(jpaSpecificationExecutor, entityClass));
-		// 删除方法
-		String primaryString = primaryKeyList.get(0).getFieldName();
-		String sql = "UPDATE %S p SET p.delFlag = 0 WHERE p.%S = :%S";
-		com.squareup.javapoet.MethodSpec.Builder methodBuilder = MethodSpec.methodBuilder("removeOne");
-		methodBuilder.addAnnotation(Modifying.class);
-		AnnotationSpec queryAnnotationBuilder = AnnotationSpec.builder(Query.class)
-				.addMember("value", "$", String.format(sql, entityName + "Entity", primaryString, primaryString))
-				.build();
-		methodBuilder.addAnnotation(queryAnnotationBuilder);
-		com.squareup.javapoet.ParameterSpec.Builder paramBuilder = ParameterSpec
-				.builder(primaryKeyList.get(0).getJavaType(), primaryString);
-		paramBuilder.addAnnotation(AnnotationSpec.builder(Param.class).addMember("value", "$", primaryString).build());
-		methodBuilder.addParameter(paramBuilder.build());
-		typeSpec.addMethod(methodBuilder.build());
-		// 根据主键获取未删除的数据
-		sql = "select u from %S u where u.delFlag = 1 and u.%S = :%S";
-		methodBuilder = MethodSpec.methodBuilder("getOne");
-		methodBuilder.addAnnotation(Modifying.class);
-		queryAnnotationBuilder = AnnotationSpec.builder(Query.class)
-				.addMember("value", "$", String.format(sql, entityName + "Entity", primaryString, primaryString))
-				.build();
-		methodBuilder.addAnnotation(queryAnnotationBuilder);
-		methodBuilder.addParameter(paramBuilder.build());
-		typeSpec.addMethod(methodBuilder.build());
-
+		/*
+		 * 删除方法
+		 * String primaryString = primaryKeyList.get(0).getFieldName(); String sql =
+		 * "UPDATE %s p SET p.delFlag = 0 WHERE p.%s = :%s";
+		 * com.squareup.javapoet.MethodSpec.Builder methodBuilder =
+		 * MethodSpec.methodBuilder("removeOne");
+		 * methodBuilder.addAnnotation(Modifying.class); AnnotationSpec
+		 * queryAnnotationBuilder = AnnotationSpec.builder(Query.class)
+		 * .addMember("value", "$S", String.format(sql, entityName + "Entity",
+		 * primaryString, primaryString)) .build();
+		 * methodBuilder.addAnnotation(queryAnnotationBuilder);
+		 * com.squareup.javapoet.ParameterSpec.Builder paramBuilder = ParameterSpec
+		 * .builder(primaryKeyList.get(0).getJavaType(), primaryString);
+		 * paramBuilder.addAnnotation(AnnotationSpec.builder(Param.class).addMember(
+		 * "value", "$S", primaryString).build());
+		 * methodBuilder.addParameter(paramBuilder.build());
+		 * methodBuilder.addModifiers(Modifier.PUBLIC);
+		 * methodBuilder.addModifiers(Modifier.ABSTRACT);
+		 * typeSpec.addMethod(methodBuilder.build());
+		 */
 		typeSpec.addJavadoc(tableDescription + "repository<br>\n@author " + classAuthor + "\n@date "
 				+ dateTimeFormater.format(LocalDateTime.now()) + "\n@since " + classVersion + "\n");
 		TypeSpec generateClass = typeSpec.build();
@@ -366,66 +368,6 @@ public class JPAGenerate {
 		return true;
 	}
 
-	/**
-	 * 生成实体
-	 * 
-	 * @param path
-	 * @param className
-	 * @return
-	 */
-	private boolean generateDynamicRepository() {
-		Builder typeSpec = TypeSpec.classBuilder("DynamicRepository<T>").addModifiers(Modifier.PUBLIC);
-		com.squareup.javapoet.FieldSpec.Builder fieldBuilder = FieldSpec.builder(EntityManager.class, "entityManager");
-		fieldBuilder.addModifiers(Modifier.PRIVATE);
-		fieldBuilder.addAnnotation(PersistenceContext.class);
-		typeSpec.addField(fieldBuilder.build());
-		typeSpec.addJavadoc(tableDescription + "\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
-				+ "\n@since " + classVersion + "\n");
-		typeSpec.addAnnotation(Repository.class);
-		typeSpec.addAnnotation(Slf4j.class);
-		com.squareup.javapoet.MethodSpec.Builder methodBuilder = MethodSpec.methodBuilder("updateDynamicByPrimaryKey");
-		methodBuilder.addCode("Class entityClass = t.getClass()");
-		methodBuilder.addCode("CriteriaUpdate update = em.getCriteriaBuilder().createCriteriaUpdate(entityClass);");
-		methodBuilder.addCode("Root<T> root = update.from(entityClass)");
-		methodBuilder.addCode("Field[] fields = entityClass.getDeclaredFields()");
-		methodBuilder.addCode("String primaryKeyName = null;");
-		methodBuilder.addCode("try {");
-		methodBuilder.addCode("for (Field field : fields) {");
-		methodBuilder.addCode("field.setAccessible(true);");
-		methodBuilder.addCode("Column column = field.getAnnotation(Column.class);");
-		methodBuilder.addCode("Id id = field.getAnnotation(Id.class);");
-		methodBuilder.addCode("if (!Objects.isNull(column) && Objects.isNull(id)) {");
-		methodBuilder.addCode("Object param = field.get(t);");
-		methodBuilder.addCode("if (!Objects.isNull(param)) {");
-		methodBuilder.addCode("update.set(root.get(field.getName()), param);");
-		methodBuilder.addCode("}");
-		methodBuilder.addCode("}");
-		methodBuilder.addCode("if(!Objects.isNull(id)){");
-		methodBuilder.addCode("primaryKeyName = field.getName();");
-		methodBuilder.addCode("}");
-		methodBuilder.addCode("}");
-		methodBuilder.addCode("if(StringUtils.isBlank(primaryKeyName)){");
-		methodBuilder.addCode("log.error(\"根据主键更新表失败:主键不存在\");");
-		methodBuilder.addCode("return 0;");
-		methodBuilder.addCode("}");
-		methodBuilder.addCode("Field primaryField = entityClass.getDeclaredField(primaryKeyName);");
-		methodBuilder.addCode("update.where(criteriaBuilder.equal(root.get(primaryKeyName), primaryField.get(t)));");
-		methodBuilder.addCode("Query query = em.createQuery(update);");
-		methodBuilder.addCode("return query.executeUpdate();");
-		methodBuilder.addCode("return query.executeUpdate();");
-		methodBuilder.addCode("} catch (IllegalAccessException | NoSuchFieldException e) {");
-		methodBuilder.addCode("log.error(\"反射获取属性失败\", e);");
-		methodBuilder.addCode("}");
-		methodBuilder.addCode("return 0;");
-		TypeSpec generateClass = typeSpec.build();
-		JavaFile javaFile = JavaFile.builder("repository", generateClass).build();
-		try {
-			javaFile.writeTo(Paths.get(filePath));
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		return true;
-	}
 
 	/**
 	 * 生成实体
@@ -436,28 +378,9 @@ public class JPAGenerate {
 	 */
 	private boolean generateService() {
 		Builder typeSpec = TypeSpec.classBuilder(entityName + "Service").addModifiers(Modifier.PUBLIC);
-		ClassName repository = ClassName.get("repository", entityName + "Repository");
-		ClassName dynamicRepository = ClassName.get("repository", "DynamicRepository");
-		com.squareup.javapoet.FieldSpec.Builder fieldBuilder = FieldSpec.builder(repository, entityName + "Repository");
-		fieldBuilder.addModifiers(Modifier.PRIVATE);
-		fieldBuilder.addAnnotation(AnnotationSpec.builder(Autowired.class).build());
-		typeSpec.addField(fieldBuilder.build());
-		fieldBuilder = FieldSpec.builder(dynamicRepository, "dynamicRepository");
-		fieldBuilder.addModifiers(Modifier.PRIVATE);
-		fieldBuilder.addAnnotation(AnnotationSpec.builder(Autowired.class).build());
-		typeSpec.addField(fieldBuilder.build());
 		typeSpec.addJavadoc(tableDescription + "<br>\n@author " + classAuthor + "\n@date " + dateTimeFormater.format(LocalDateTime.now())
 				+ "\n@since " + classVersion + "\n");
 		typeSpec.addAnnotation(Service.class);
-		AnnotationSpec tableAnnotationBuilder = AnnotationSpec.builder(ApiModel.class)
-				.addMember("value", "$S", tableName).build();
-		typeSpec.addAnnotation(tableAnnotationBuilder);
-		typeSpec.addAnnotation(Data.class);
-		typeSpec.addMethod(new GenerateRemove().remove(entityName, primaryKeyList.get(0)).build());
-		GenerateSave generateSave = new GenerateSave();
-		typeSpec.addMethod(generateSave.update(entityName, primaryKeyList.get(0).getFieldName()).build());
-		typeSpec.addMethod(generateSave.save(entityName, primaryKeyList.get(0).getFieldName()).build());
-		typeSpec.addMethod(new GenerateFindOne().findOne(entityName, primaryKeyList.get(0)).build());
 		TypeSpec generateClass = typeSpec.build();
 		JavaFile javaFile = JavaFile.builder("service", generateClass).build();
 		try {
@@ -476,7 +399,6 @@ public class JPAGenerate {
 		this.generateIModel();
 		this.generateOModel();
 		this.generateRepository();
-		this.generateDynamicRepository();
 		this.generateService();
 	}
 
