@@ -22,4 +22,6 @@ public class DatabaseReflect {
 	 * 数据字段名字
 	 */
 	private String conlumnName;
+	
+	private Boolean  autoincrement;
 }
