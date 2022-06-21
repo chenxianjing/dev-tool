@@ -32,7 +32,7 @@
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 		<java.version>1.8</java.version>
 		<javapoet.version>1.10.0</javapoet.version>
-		<mysql.version>6.0.6</mysql.version>
+		<mysql.version>8.0.28</mysql.version>
 		<lombok.version>1.16.18</lombok.version>
 		<swagger.version>1.5.22</swagger.version>
 	</properties>
